@@ -8,7 +8,7 @@ app.use(express.json());
 const {
   VERIFY_TOKEN,
   INSTAGRAM_ACCESS_TOKEN,
-  ANTHROPIC_API_KEY,
+  GROQ_API_KEY,
   PORT = 3000,
 } = process.env;
 
@@ -40,12 +40,9 @@ app.post("/webhook", async (req, res) => {
       const commentText = val.text;
       const mediaId = val.media?.id;
 
-      console.log("📦 Full comment payload:", JSON.stringify(val, null, 2));
+      console.log(`💬 New comment: "${commentText}"`);
 
-      if (!commentId || !commentText) {
-        console.log("⚠️ Missing commentId or text, skipping");
-        continue;
-      }
+      if (!commentId || !commentText) continue;
 
       try {
         const postCaption = mediaId ? await getPostCaption(mediaId) : "";
@@ -53,7 +50,6 @@ app.post("/webhook", async (req, res) => {
         await postReply(commentId, reply);
         console.log(`✅ Replied: "${reply}"`);
       } catch (err) {
-        // Log full error details for debugging
         if (err.response) {
           console.error("❌ API Error:", err.response.status, JSON.stringify(err.response.data));
         } else {
@@ -77,7 +73,7 @@ async function getPostCaption(mediaId) {
   }
 }
 
-// ─── Generate Reply via Claude ────────────────────────────────────────────────
+// ─── Generate Reply via Groq (Free) ──────────────────────────────────────────
 async function generateReply(commentText, postCaption) {
   const systemPrompt = `You are the owner of an Instagram page called @scenorium focused on film and entertainment.
 You reply to comments on your posts in a warm, casual, and human tone — like a real person would.
@@ -91,39 +87,39 @@ If it's negative or spam, politely ignore or give a kind neutral response.`;
     : `Comment: "${commentText}"\n\nWrite a natural reply:`;
 
   const response = await axios.post(
-    "https://api.anthropic.com/v1/messages",
+    "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "claude-sonnet-4-6",
+      model: "llama-3.3-70b-versatile",
       max_tokens: 150,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
     },
     {
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
         "Content-Type": "application/json",
       },
     }
   );
 
-  return response.data.content[0].text.trim();
+  return response.data.choices[0].message.content.trim();
 }
 
 // ─── Post Reply to Instagram ──────────────────────────────────────────────────
 async function postReply(commentId, message) {
   console.log(`📤 Posting reply to comment ${commentId}...`);
-  
-  // Try the Graph API v21.0 endpoint
-  const url = `https://graph.instagram.com/v21.0/${commentId}/replies`;
-  
-  const res = await axios.post(url, null, {
-    params: {
-      message,
-      access_token: INSTAGRAM_ACCESS_TOKEN,
-    },
-  });
-
+  const res = await axios.post(
+    `https://graph.instagram.com/v21.0/${commentId}/replies`,
+    null,
+    {
+      params: {
+        message,
+        access_token: INSTAGRAM_ACCESS_TOKEN,
+      },
+    }
+  );
   console.log("📬 Reply response:", JSON.stringify(res.data));
   return res.data;
 }
