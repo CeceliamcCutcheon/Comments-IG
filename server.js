@@ -12,13 +12,9 @@ const {
   PORT = 3000,
 } = process.env;
 
-// ─── Your Instagram username (hardcoded — never reply to own comments) ────────
 const OWN_USERNAME = "scenorium";
-
-// ─── Deduplication Store ──────────────────────────────────────────────────────
 const repliedComments = new Set();
 
-// ─── Webhook Verification ─────────────────────────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -30,7 +26,6 @@ app.get("/webhook", (req, res) => {
   res.sendStatus(403);
 });
 
-// ─── Receive Comment Events ───────────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
 
@@ -49,13 +44,11 @@ app.post("/webhook", async (req, res) => {
 
       if (!commentId || !commentText) continue;
 
-      // ── Skip if comment is from our own account ──
       if (fromUsername === OWN_USERNAME) {
         console.log(`🤖 Skipping own comment from @${fromUsername}`);
         continue;
       }
 
-      // ── Skip if already replied ──
       if (repliedComments.has(commentId)) {
         console.log(`⏭️ Already replied to comment ${commentId}, skipping`);
         continue;
@@ -81,7 +74,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// ─── Fetch Post Caption ───────────────────────────────────────────────────────
 async function getPostCaption(mediaId) {
   try {
     const res = await axios.get(`https://graph.instagram.com/v21.0/${mediaId}`, {
@@ -94,24 +86,31 @@ async function getPostCaption(mediaId) {
   }
 }
 
-// ─── Generate Reply via Groq (Free) ──────────────────────────────────────────
 async function generateReply(commentText, postCaption) {
-  const systemPrompt = `You are the owner of an Instagram page called @scenorium focused on film and entertainment.
-You reply to comments on your posts in a warm, casual, and human tone — like a real person would.
-Keep replies short (1–2 sentences max). No hashtags. No emojis unless the commenter used them.
-Never sound robotic or like a bot. Match the energy of the comment.
-If the comment is a question, answer it directly. If it's a compliment, thank them genuinely.
-If it's negative or spam, politely ignore or give a kind neutral response.`;
+  const systemPrompt = `You are a real person who runs @scenorium, an Instagram page about films and cinema.
+You're replying to comments on your posts. Write exactly like a young film enthusiast texting a friend.
+
+Rules:
+- MAX 1 sentence. Often even less.
+- If the comment is only emojis, reply with 1-2 emojis only. Nothing else.
+- Use lowercase most of the time. Capitalize only for emphasis occasionally.
+- No punctuation at the end of sentences sometimes. Real people forget periods.
+- Never say "I can imagine", "it's crazy how", "it resonates", "I completely agree" — too formal
+- Use words like: fr, ngl, lowkey, honestly, bro, man, real, no cap — but sparingly, not every reply
+- Short reactions are fine: "exactly lol", "still hits different", "one of the best fr"
+- Never thank people for commenting. Never say "glad you enjoyed it"
+- Sound like you typed this on your phone in 5 seconds`;
 
   const userPrompt = postCaption
-    ? `Post caption: "${postCaption}"\n\nComment: "${commentText}"\n\nWrite a natural reply:`
-    : `Comment: "${commentText}"\n\nWrite a natural reply:`;
+    ? `Your post caption: "${postCaption}"\n\nSomeone commented: "${commentText}"\n\nReply naturally (remember: short, casual, human):`
+    : `Someone commented on your Instagram post: "${commentText}"\n\nReply naturally (remember: short, casual, human):`;
 
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
       model: "llama-3.3-70b-versatile",
-      max_tokens: 150,
+      max_tokens: 60,
+      temperature: 0.9,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -128,7 +127,6 @@ If it's negative or spam, politely ignore or give a kind neutral response.`;
   return response.data.choices[0].message.content.trim();
 }
 
-// ─── Post Reply to Instagram ──────────────────────────────────────────────────
 async function postReply(commentId, message) {
   const res = await axios.post(
     `https://graph.instagram.com/v21.0/${commentId}/replies`,
@@ -138,7 +136,5 @@ async function postReply(commentId, message) {
   return res.data;
 }
 
-// ─── Health Check ─────────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.send("Instagram AutoReply is running ✅"));
-
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
