@@ -9,9 +9,11 @@ const {
   VERIFY_TOKEN,
   INSTAGRAM_ACCESS_TOKEN,
   GROQ_API_KEY,
-  INSTAGRAM_USER_ID, // Your own Instagram account ID
   PORT = 3000,
 } = process.env;
+
+// ─── Your Instagram username (hardcoded — never reply to own comments) ────────
+const OWN_USERNAME = "scenorium";
 
 // ─── Deduplication Store ──────────────────────────────────────────────────────
 const repliedComments = new Set();
@@ -43,14 +45,13 @@ app.post("/webhook", async (req, res) => {
       const commentId = val.id;
       const commentText = val.text;
       const mediaId = val.media?.id;
-      const fromId = val.from?.id;
       const fromUsername = val.from?.username;
 
       if (!commentId || !commentText) continue;
 
-      // ── Skip if this comment is from our own account (bot reply) ──
-      if (INSTAGRAM_USER_ID && fromId === INSTAGRAM_USER_ID) {
-        console.log(`🤖 Skipping own reply from @${fromUsername}`);
+      // ── Skip if comment is from our own account ──
+      if (fromUsername === OWN_USERNAME) {
+        console.log(`🤖 Skipping own comment from @${fromUsername}`);
         continue;
       }
 
