@@ -9,11 +9,11 @@ const {
   VERIFY_TOKEN,
   INSTAGRAM_ACCESS_TOKEN,
   GROQ_API_KEY,
+  INSTAGRAM_USER_ID, // Your own Instagram account ID
   PORT = 3000,
 } = process.env;
 
 // ─── Deduplication Store ──────────────────────────────────────────────────────
-// Keeps track of comment IDs we already replied to (in-memory, resets on restart)
 const repliedComments = new Set();
 
 // ─── Webhook Verification ─────────────────────────────────────────────────────
@@ -43,19 +43,25 @@ app.post("/webhook", async (req, res) => {
       const commentId = val.id;
       const commentText = val.text;
       const mediaId = val.media?.id;
+      const fromId = val.from?.id;
+      const fromUsername = val.from?.username;
 
       if (!commentId || !commentText) continue;
 
-      // ── Skip if already replied to this comment ──
+      // ── Skip if this comment is from our own account (bot reply) ──
+      if (INSTAGRAM_USER_ID && fromId === INSTAGRAM_USER_ID) {
+        console.log(`🤖 Skipping own reply from @${fromUsername}`);
+        continue;
+      }
+
+      // ── Skip if already replied ──
       if (repliedComments.has(commentId)) {
         console.log(`⏭️ Already replied to comment ${commentId}, skipping`);
         continue;
       }
 
-      // ── Mark as processing immediately to block duplicates ──
       repliedComments.add(commentId);
-
-      console.log(`💬 New comment: "${commentText}"`);
+      console.log(`💬 New comment from @${fromUsername}: "${commentText}"`);
 
       try {
         const postCaption = mediaId ? await getPostCaption(mediaId) : "";
@@ -63,7 +69,6 @@ app.post("/webhook", async (req, res) => {
         await postReply(commentId, reply);
         console.log(`✅ Replied: "${reply}"`);
       } catch (err) {
-        // Remove from set so it can be retried if it genuinely failed
         repliedComments.delete(commentId);
         if (err.response) {
           console.error("❌ API Error:", err.response.status, JSON.stringify(err.response.data));
@@ -124,16 +129,10 @@ If it's negative or spam, politely ignore or give a kind neutral response.`;
 
 // ─── Post Reply to Instagram ──────────────────────────────────────────────────
 async function postReply(commentId, message) {
-  console.log(`📤 Posting reply to comment ${commentId}...`);
   const res = await axios.post(
     `https://graph.instagram.com/v21.0/${commentId}/replies`,
     null,
-    {
-      params: {
-        message,
-        access_token: INSTAGRAM_ACCESS_TOKEN,
-      },
-    }
+    { params: { message, access_token: INSTAGRAM_ACCESS_TOKEN } }
   );
   return res.data;
 }
