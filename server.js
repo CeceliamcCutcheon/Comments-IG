@@ -12,12 +12,11 @@ const {
   PORT = 3000,
 } = process.env;
 
-// ─── Webhook Verification (Facebook handshake) ────────────────────────────────
+// ─── Webhook Verification ─────────────────────────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     console.log("✅ Webhook verified");
     return res.status(200).send(challenge);
@@ -27,7 +26,7 @@ app.get("/webhook", (req, res) => {
 
 // ─── Receive Comment Events ───────────────────────────────────────────────────
 app.post("/webhook", async (req, res) => {
-  res.sendStatus(200); // Always respond fast to Facebook
+  res.sendStatus(200);
 
   const body = req.body;
   if (body.object !== "instagram") return;
@@ -36,20 +35,30 @@ app.post("/webhook", async (req, res) => {
     for (const change of entry.changes || []) {
       if (change.field !== "comments") continue;
 
-      const { id: commentId, text: commentText, media } = change.value;
-      const mediaId = media?.id;
+      const val = change.value;
+      const commentId = val.id;
+      const commentText = val.text;
+      const mediaId = val.media?.id;
 
-      if (!commentId || !commentText || !mediaId) continue;
+      console.log("📦 Full comment payload:", JSON.stringify(val, null, 2));
 
-      console.log(`💬 New comment on media ${mediaId}: "${commentText}"`);
+      if (!commentId || !commentText) {
+        console.log("⚠️ Missing commentId or text, skipping");
+        continue;
+      }
 
       try {
-        const postCaption = await getPostCaption(mediaId);
+        const postCaption = mediaId ? await getPostCaption(mediaId) : "";
         const reply = await generateReply(commentText, postCaption);
         await postReply(commentId, reply);
         console.log(`✅ Replied: "${reply}"`);
       } catch (err) {
-        console.error("❌ Error handling comment:", err.message);
+        // Log full error details for debugging
+        if (err.response) {
+          console.error("❌ API Error:", err.response.status, JSON.stringify(err.response.data));
+        } else {
+          console.error("❌ Error:", err.message);
+        }
       }
     }
   }
@@ -58,11 +67,12 @@ app.post("/webhook", async (req, res) => {
 // ─── Fetch Post Caption ───────────────────────────────────────────────────────
 async function getPostCaption(mediaId) {
   try {
-    const res = await axios.get(`https://graph.instagram.com/${mediaId}`, {
+    const res = await axios.get(`https://graph.instagram.com/v21.0/${mediaId}`, {
       params: { fields: "caption", access_token: INSTAGRAM_ACCESS_TOKEN },
     });
     return res.data.caption || "";
-  } catch {
+  } catch (err) {
+    console.log("⚠️ Could not fetch caption:", err.response?.data || err.message);
     return "";
   }
 }
@@ -102,10 +112,20 @@ If it's negative or spam, politely ignore or give a kind neutral response.`;
 
 // ─── Post Reply to Instagram ──────────────────────────────────────────────────
 async function postReply(commentId, message) {
-  await axios.post(`https://graph.instagram.com/${commentId}/replies`, {
-    message,
-    access_token: INSTAGRAM_ACCESS_TOKEN,
+  console.log(`📤 Posting reply to comment ${commentId}...`);
+  
+  // Try the Graph API v21.0 endpoint
+  const url = `https://graph.instagram.com/v21.0/${commentId}/replies`;
+  
+  const res = await axios.post(url, null, {
+    params: {
+      message,
+      access_token: INSTAGRAM_ACCESS_TOKEN,
+    },
   });
+
+  console.log("📬 Reply response:", JSON.stringify(res.data));
+  return res.data;
 }
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
