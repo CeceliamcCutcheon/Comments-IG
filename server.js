@@ -12,6 +12,10 @@ const {
   PORT = 3000,
 } = process.env;
 
+// ─── Deduplication Store ──────────────────────────────────────────────────────
+// Keeps track of comment IDs we already replied to (in-memory, resets on restart)
+const repliedComments = new Set();
+
 // ─── Webhook Verification ─────────────────────────────────────────────────────
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -40,9 +44,18 @@ app.post("/webhook", async (req, res) => {
       const commentText = val.text;
       const mediaId = val.media?.id;
 
-      console.log(`💬 New comment: "${commentText}"`);
-
       if (!commentId || !commentText) continue;
+
+      // ── Skip if already replied to this comment ──
+      if (repliedComments.has(commentId)) {
+        console.log(`⏭️ Already replied to comment ${commentId}, skipping`);
+        continue;
+      }
+
+      // ── Mark as processing immediately to block duplicates ──
+      repliedComments.add(commentId);
+
+      console.log(`💬 New comment: "${commentText}"`);
 
       try {
         const postCaption = mediaId ? await getPostCaption(mediaId) : "";
@@ -50,6 +63,8 @@ app.post("/webhook", async (req, res) => {
         await postReply(commentId, reply);
         console.log(`✅ Replied: "${reply}"`);
       } catch (err) {
+        // Remove from set so it can be retried if it genuinely failed
+        repliedComments.delete(commentId);
         if (err.response) {
           console.error("❌ API Error:", err.response.status, JSON.stringify(err.response.data));
         } else {
@@ -120,7 +135,6 @@ async function postReply(commentId, message) {
       },
     }
   );
-  console.log("📬 Reply response:", JSON.stringify(res.data));
   return res.data;
 }
 
