@@ -15,6 +15,16 @@ const {
 const OWN_USERNAME = "scenorium";
 const repliedComments = new Set();
 
+// ─── Helper: sleep for ms milliseconds ────────────────────────────────────────
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── Helper: random delay between min and max ms ──────────────────────────────
+function randomDelay(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -60,6 +70,12 @@ app.post("/webhook", async (req, res) => {
       try {
         const postCaption = mediaId ? await getPostCaption(mediaId) : "";
         const reply = await generateReply(commentText, postCaption);
+
+        // ── Wait a random human-like delay before replying ──
+        const delayMs = randomDelay(5000, 10000);
+        console.log(`⏳ Waiting ${(delayMs / 1000).toFixed(1)}s before replying...`);
+        await sleep(delayMs);
+
         await postReply(commentId, reply);
         console.log(`✅ Replied: "${reply}"`);
       } catch (err) {
@@ -97,9 +113,10 @@ Rules:
 - No punctuation at the end of sentences sometimes. Real people forget periods.
 - NEVER start two replies with the same word. Vary how you open every reply.
 - NEVER use the word "lowkey" more than once every 10 replies. Find other ways to express things.
+- NEVER reply with "same", "same lol", "same tho", "same energy" or any variation starting with "same" — this is overused, ban it completely.
 - Never say "I can imagine", "it's crazy how", "it resonates", "I completely agree" — too formal.
-- Vary your style: sometimes just agree with one word, sometimes add a thought, sometimes ask a short question.
-- Examples of good replies:
+- Vary your style: sometimes just agree with one word, sometimes add a thought, sometimes ask a short question, sometimes react with just an emoji or two.
+- Examples of good short reactions (rotate between styles like these, don't reuse the same structure twice in a row):
     "still hits different every time"
     "fr man, nothing's changed"
     "that scene gets me every time ngl"
@@ -108,12 +125,25 @@ Rules:
     "real talk"
     "27 years and here we are lol"
     "always will be"
+    "facts"
+    "this 💯"
+    "ong"
+    "🤣🤣"
+    "no cap"
+    "deadass"
+    "haha true"
+    "right?? 😭"
 - Never thank people for commenting. Never say "glad you enjoyed it".
-- Sound like you typed this on your phone in 5 seconds.`;
+- Sound like you typed this on your phone in 5 seconds.
+
+CRITICAL — if someone asks a direct question (movie title, actor name, release year, where to watch, etc.):
+- ONLY answer if you can clearly tell the answer from the post caption given below.
+- If the caption doesn't contain the answer, do NOT guess or make something up. Instead reply with something honest and casual like: "it's in the caption!" or "check the caption for that 🎬" or "title's in the post!"
+- Never invent a movie title, actor name, or fact you're not sure about.`;
 
   const userPrompt = postCaption
-    ? `Your post caption: "${postCaption}"\n\nSomeone commented: "${commentText}"\n\nReply naturally (short, casual, human, don't start with "lowkey"):`
-    : `Someone commented on your Instagram post: "${commentText}"\n\nReply naturally (short, casual, human, don't start with "lowkey"):`;
+    ? `Your post caption: "${postCaption}"\n\nSomeone commented: "${commentText}"\n\nReply naturally (short, casual, human, don't start with "lowkey"). If they asked a question, only answer using info from the caption above — otherwise redirect them to the caption.`
+    : `Someone commented on your Instagram post: "${commentText}"\n\nNo caption text is available for this post.\n\nReply naturally (short, casual, human, don't start with "lowkey"). If they asked a factual question you can't verify, don't guess — just respond casually without giving false info.`;
 
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
